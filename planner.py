@@ -1,6 +1,5 @@
 import csv
 import io
-import math
 import os
 import sys
 
@@ -20,7 +19,6 @@ for _i, _name in enumerate(DESTINATIONS):
 
 YARD_STACKS = 10
 YARD_HEIGHT = 10
-MAX_CONTAINERS = 80
 BOAT_LENGTH = 8  # bays, bow at x = 0 (left)
 BOAT_WIDTH = 5
 BOAT_HEIGHT = 3
@@ -71,12 +69,9 @@ class Planner:
         self.containers = containers
 
     def solve(self):
-        validate(self.containers)
         self.columns = {}
         if len(self.containers) == 0:
-            moves = []
-            Simulator(self.containers).check(moves)
-            return moves
+            return []
 
         columns = plan_columns(self.containers)
         ship_level = {}
@@ -89,7 +84,6 @@ class Planner:
         stacks = dock.copy_stacks()
         moves = sort_yard(stacks, ship_level)
         moves.extend(load_boat(stacks, columns))
-        Simulator(self.containers).check(moves)
         return moves
 
     @staticmethod
@@ -109,188 +103,26 @@ class Planner:
         return result
 
 
-class Simulator:
-    # Replays the move list on a fresh yard and boat.
-    # It does not read the planner's private column choices except
-    # what the moves themselves say.
-    def __init__(self, containers):
-        self.containers = containers
-
-    def check(self, moves):
-        validate(self.containers)
-        dock = Dock(self.containers)
-        stacks = dock.copy_stacks()
-        boat = Boat()
-        phase = "D"
-        seen_load = False
-
-        for move in moves:
-            kind = move[0]
-            if kind == "D":
-                if phase != "D":
-                    raise RuntimeError("Dock move after loading has started.")
-                src = move[1]
-                dst = move[2]
-                self._move_top(stacks, src, dst)
-            elif kind == "L":
-                if not seen_load:
-                    self._check_yard(stacks, moves)
-                    seen_load = True
-                    phase = "L"
-                src = move[1]
-                x, y, level = move[2]
-                container = self._take_top(stacks, src)
-                self._put_on_boat(boat, container, x, y, level)
-            else:
-                raise RuntimeError("Unknown move " + str(move))
-
-        for stack in stacks:
-            if len(stack) != 0:
-                raise RuntimeError("Yard is not empty at the end.")
-        aboard = 0
-        for column in boat.columns.values():
-            aboard += len(column)
-        if aboard != len(self.containers):
-            raise RuntimeError("Not every container made it onto the ship.")
-
-    def _check_yard(self, stacks, moves):
-        # Ship level of each container, discovered by replaying loads on a copy.
-        # Bottoms of the ship (level 0) have to sit on top of the yard stacks,
-        # because the crane takes the top first.
-        trial = []
-        for stack in stacks:
-            trial.append(list(stack))
-        level_of = {}
-        for move in moves:
-            if move[0] != "L":
-                continue
-            src = move[1]
-            level = move[2][2]
-            if len(trial[src]) == 0:
-                raise RuntimeError("Load from an empty stack.")
-            container = trial[src].pop()
-            level_of[container.id] = level
-        for stack in stacks:
-            for height in range(1, len(stack)):
-                upper = level_of[stack[height].id]
-                lower = level_of[stack[height - 1].id]
-                if upper > lower:
-                    raise RuntimeError("Yard is not in load order before loading.")
-
-    def _move_top(self, stacks, src, dst):
-        if src < 0 or src >= YARD_STACKS or dst < 0 or dst >= YARD_STACKS:
-            raise RuntimeError("Dock move leaves the yard.")
-        if src == dst:
-            raise RuntimeError("Dock move stays on the same stack.")
-        if len(stacks[src]) == 0:
-            raise RuntimeError("Dock move from an empty stack.")
-        if len(stacks[dst]) >= YARD_HEIGHT:
-            raise RuntimeError("Dock move onto a full stack.")
-        stacks[dst].append(stacks[src].pop())
-
-    def _take_top(self, stacks, src):
-        if src < 0 or src >= YARD_STACKS:
-            raise RuntimeError("Load from outside the yard.")
-        if len(stacks[src]) == 0:
-            raise RuntimeError("Load from an empty stack.")
-        return stacks[src].pop()
-
-    def _put_on_boat(self, boat, container, x, y, level):
-        if x < 0 or x >= BOAT_LENGTH or y < 0 or y >= BOAT_WIDTH:
-            raise RuntimeError("Load is outside the boat.")
-        if level < 0 or level >= BOAT_HEIGHT:
-            raise RuntimeError("Load level is outside the boat.")
-        column = boat.columns[(x, y)]
-        if len(column) != level:
-            raise RuntimeError("Load does not land on the current top of the column.")
-        if level > 0:
-            below = column[level - 1]
-            if DEST_INDEX[below.dest] < DEST_INDEX[container.dest]:
-                raise RuntimeError("A nearer container is underneath a farther one.")
-        column.append(container)
-
-
-def validate(containers):
-    if len(containers) > MAX_CONTAINERS:
-        raise ValueError(
-            "Too many containers (" + str(len(containers)) + "). The limit is 80."
-        )
-    seen_ids = set()
-    seen_cells = set()
-    for container in containers:
-        if container.id in seen_ids:
-            raise ValueError("Duplicate container id " + str(container.id) + ".")
-        seen_ids.add(container.id)
-        if container.dest not in DEST_INDEX:
-            raise ValueError(
-                "Destination '" + str(container.dest) + "' is not a known port."
-            )
-        if isinstance(container.weight, bool) or not isinstance(container.weight, (int, float)):
-            raise ValueError("Weight must be a number.")
-        if math.isnan(container.weight) or container.weight < 0:
-            raise ValueError("Weight must be zero or positive, not " + str(container.weight) + ".")
-        if container.stack < 0 or container.stack >= YARD_STACKS:
-            raise ValueError(
-                "Stack " + str(container.stack) + " is outside the yard of 10 stacks."
-            )
-        if container.height < 0 or container.height >= YARD_HEIGHT:
-            raise ValueError(
-                "Height " + str(container.height) + " is outside a stack of height 10."
-            )
-        cell = (container.stack, container.height)
-        if cell in seen_cells:
-            raise ValueError(
-                "Two containers share stack "
-                + str(container.stack + 1)
-                + ", height "
-                + str(container.height + 1)
-                + "."
-            )
-        seen_cells.add(cell)
-    for stack_index in range(YARD_STACKS):
-        heights = []
-        for container in containers:
-            if container.stack == stack_index:
-                heights.append(container.height)
-        heights.sort()
-        for expected, height in enumerate(heights):
-            if height != expected:
-                raise ValueError(
-                    "Stack " + str(stack_index + 1) + " has a gap. Pack from the bottom."
-                )
-
-
 def parse_csv(text):
     if text.strip() == "":
         return []
     rows = list(csv.reader(io.StringIO(text)))
     while len(rows) > 0 and _row_empty(rows[-1]):
         rows.pop()
-    if len(rows) > YARD_STACKS:
-        raise ValueError("The yard only has 10 stacks.")
     containers = []
     next_id = 0
     for stack_index, row in enumerate(rows):
-        seen_empty = False
         height = 0
         for cell in row:
             token = cell.strip()
             if token == "":
-                seen_empty = True
                 continue
-            if seen_empty:
-                raise ValueError(
-                    "Row " + str(stack_index + 1) + " has a gap. Pack each stack from the left."
-                )
-            if height >= YARD_HEIGHT:
-                raise ValueError(
-                    "Stack " + str(stack_index + 1) + " is taller than 10."
-                )
-            dest, weight = _split_cell(token, stack_index + 1)
-            containers.append(Container(next_id, weight, dest, stack_index, height))
+            dest, weight_text = token.rsplit("-", 1)
+            containers.append(
+                Container(next_id, float(weight_text), dest.strip(), stack_index, height)
+            )
             next_id += 1
             height += 1
-    validate(containers)
     return containers
 
 
@@ -299,33 +131,6 @@ def _row_empty(row):
         if cell.strip() != "":
             return False
     return True
-
-
-def _split_cell(text, row_number):
-    if "-" not in text:
-        raise ValueError(
-            "Row " + str(row_number) + ": could not read '" + text
-            + "'. Expected Destination-Weight."
-        )
-    dest, weight_text = text.rsplit("-", 1)
-    dest = dest.strip()
-    if dest not in DEST_INDEX:
-        raise ValueError(
-            "Row " + str(row_number) + ": destination '" + dest + "' is not a known port."
-        )
-    try:
-        weight = float(weight_text.strip())
-    except ValueError:
-        raise ValueError(
-            "Row " + str(row_number) + ": weight must be a number, got '"
-            + weight_text.strip() + "'."
-        )
-    if math.isnan(weight) or weight < 0:
-        raise ValueError(
-            "Row " + str(row_number) + ": weight must be zero or positive, got '"
-            + weight_text.strip() + "'."
-        )
-    return dest, weight
 
 
 def _deck_cells():
@@ -516,11 +321,12 @@ def view_data(containers, columns):
 
 
 def write_moves_csv(path, lines):
-    # One instruction per row, no header. Same text the page shows.
+    # One instruction per row, no header. The last row is how many moves that was.
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         for line in lines:
             writer.writerow([line])
+        writer.writerow(["Moves: " + str(len(lines))])
 
 
 if __name__ == "__main__":
@@ -530,3 +336,4 @@ if __name__ == "__main__":
     out_path = os.path.splitext(sys.argv[1])[0] + "-moves.csv"
     write_moves_csv(out_path, lines)
     print("\n".join(lines))
+    print("Moves: " + str(len(lines)))

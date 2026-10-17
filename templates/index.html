@@ -36,6 +36,7 @@
       {% if saved_name and not error %}
       <p class="ok">Saved on this device as uploads/{{ saved_name }}.</p>
       <p class="ok">Instructions written to {{ moves_name }}. <a href="#ship">See the ship</a></p>
+      <p class="ok">Moves: {{ move_count }}</p>
       {% endif %}
 
       <section class="panel">

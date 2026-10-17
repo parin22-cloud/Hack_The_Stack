@@ -38,6 +38,7 @@ def index():
     layout_json = None
     moves = None
     moves_name = None
+    move_count = None
     posted = request.method == "POST"
 
     if posted:
@@ -47,6 +48,7 @@ def index():
             planner = Planner(containers)
             plan = planner.solve()
             moves = Planner.format_moves(plan)
+            move_count = len(moves)
             yard, ship = view_data(containers, planner.columns)
             layout_json = json.dumps({"yard": yard, "ship": ship})
             stem = os.path.splitext(saved_name)[0]
@@ -61,6 +63,7 @@ def index():
         saved_name=saved_name,
         layout_json=layout_json,
         moves_name=moves_name,
+        move_count=move_count,
         posted=posted,
     )
 
