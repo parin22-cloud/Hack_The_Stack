@@ -3,8 +3,6 @@ import io
 import os
 import sys
 
-
-# Closest port first. A is Anchorage, E is Edinburgh.
 DESTINATION_ORDER = {
     "anchorage": "A",
     "brisbane": "B",
@@ -16,7 +14,7 @@ DESTINATION_ORDER = {
 NUM_STACKS, MAX_HEIGHT = 10, 10
 YARD_STACKS = NUM_STACKS
 YARD_HEIGHT = MAX_HEIGHT
-BOAT_LENGTH = 8  # bays, bow at x = 0 (left)
+BOAT_LENGTH = 8
 BOAT_WIDTH = 5
 BOAT_HEIGHT = 3
 
@@ -26,20 +24,17 @@ for _index, (_city, _letter) in enumerate(DESTINATION_ORDER.items()):
     DEST_INDEX[_letter] = _index
     PORT_NAME[_letter] = _city.capitalize()
 
-
 def split_text(text):
     parts = text.split("-")
     parts[0] = DESTINATION_ORDER[parts[0].strip().lower()]
     parts[1] = int(parts[1])
     return parts[0], parts[1]
 
-
 def empty_dock():
     dock = {}
     for n in range(1, NUM_STACKS + 1):
         dock[n] = []
     return dock
-
 
 def move(dock, source, destination):
     if len(dock[source]) == 0:
@@ -52,7 +47,6 @@ def move(dock, source, destination):
     c = dock[source].pop()
     dock[destination].append(c)
 
-
 def make_container(dest, weight, counts, wclass=None):
     counts[dest] = counts.get(dest, 0) + 1
     cont_id = dest + str(counts[dest])
@@ -61,15 +55,13 @@ def make_container(dest, weight, counts, wclass=None):
         made["weight_class"] = wclass
     return made
 
-
 class Container:
     def __init__(self, id, weight, dest, stack, height):
         self.id = id
         self.weight = weight
         self.dest = dest
         self.stack = stack
-        self.height = height  # 0 is the bottom of the stack
-
+        self.height = height
 
 class Dock:
     def __init__(self, containers):
@@ -87,7 +79,6 @@ class Dock:
             copied.append(list(stack))
         return copied
 
-
 class Boat:
     def __init__(self):
         self.columns = {}
@@ -97,10 +88,7 @@ class Boat:
 
     @staticmethod
     def center_distance(x, y):
-        # How far this column is from the middle of the ship, with no floats.
-        # 8 bays, so the middle sits between bay 3 and bay 4. 5 rows, middle is row 2.
         return (2 * x - 7) ** 2 + (2 * y - 4) ** 2
-
 
 class Planner:
     def __init__(self, containers):
@@ -113,9 +101,6 @@ class Planner:
 
         dock = Dock(self.containers)
         stacks = dock.copy_stacks()
-        # Same-port boxes are interchangeable for the port rule, so try ranking
-        # them by weight and by yard height, and keep whichever plan needs
-        # fewer yard moves. A tie keeps the weight plan (heavier boxes lower).
         best = None
         for yard_first in (False, True):
             columns = plan_columns(self.containers, yard_first=yard_first)
@@ -131,7 +116,6 @@ class Planner:
 
     @staticmethod
     def format_moves(moves):
-        """Yard moves are 3>1. Loads are 3>s(4|2): stack 3 onto bay 4, row 2."""
         result = []
         for kind, *data in moves:
             if kind == "D":
@@ -141,7 +125,6 @@ class Planner:
                 src, (x, y, _level) = data
                 result.append(f"{src + 1}>S({y + 1}|{x + 1})")
         return result
-
 
 def parse_csv(text):
     if text.strip() == "":
@@ -167,24 +150,19 @@ def parse_csv(text):
             )
     return containers
 
-
 def _row_empty(row):
     for cell in row:
         if cell.strip() != "":
             return False
     return True
 
-
 def _deck_cells():
     cells = []
     for y in range(BOAT_WIDTH):
         for x in range(BOAT_LENGTH):
             cells.append((x, y))
-    # Checkerboard first, so the second layer lands all over the deck
-    # instead of piling up on the left and stopping.
     cells.sort(key=lambda pos: ((pos[0] + pos[1]) % 2, pos[1], pos[0]))
     return cells
-
 
 def _ship_levels(columns):
     ship_level = {}
@@ -193,10 +171,7 @@ def _ship_levels(columns):
             ship_level[container.id] = level
     return ship_level
 
-
 def plan_columns(containers, yard_first=False):
-    # Fill the floor of the whole ship before anyone gets a second box,
-    # then the second level, then the third. Farther ports stay underneath.
     spots = BOAT_LENGTH * BOAT_WIDTH
     cells = _deck_cells()
     count = len(containers)
@@ -213,7 +188,6 @@ def plan_columns(containers, yard_first=False):
             heights[pos] += 1
 
     if yard_first:
-        # Within a port, the box sitting higher in the yard boards first (lower level).
         def order(container):
             return (-DEST_INDEX[container.dest], -container.height, -container.weight, container.id)
     else:
@@ -227,7 +201,6 @@ def plan_columns(containers, yard_first=False):
         for pos, height in heights.items():
             if height > level:
                 slots.append(pos)
-        # Heavier boxes on this level sit closer to the middle. The level is still full.
         slots.sort(key=lambda pos: (Boat.center_distance(pos[0], pos[1]), pos[0], pos[1]))
         batch = ordered[index:index + len(slots)]
         index += len(slots)
@@ -236,7 +209,6 @@ def plan_columns(containers, yard_first=False):
             columns.setdefault(pos, []).append(container)
     return columns
 
-
 def _yard_ready(stacks, ship_level):
     for stack in stacks:
         for height in range(1, len(stack)):
@@ -244,16 +216,10 @@ def _yard_ready(stacks, ship_level):
                 return False
     return True
 
-
 def sort_yard(stacks, ship_level):
-    # The crane only grabs the top box. Stuff that boards first (the floor of
-    # each ship column) has to be sitting on top in the yard. If it already is,
-    # leave the stacks alone.
     if _yard_ready(stacks, ship_level):
         return []
 
-    # Try moving only the boxes that are in the way, and the old full rebuild,
-    # and keep whichever needs fewer moves.
     targeted = [list(stack) for stack in stacks]
     moves = _sort_targeted(targeted, ship_level)
     rebuilt = [list(stack) for stack in stacks]
@@ -263,22 +229,16 @@ def sort_yard(stacks, ship_level):
     stacks[:] = targeted
     return moves
 
-
 def _clean_height(stack, ship_level):
-    # How many boxes, counted from the bottom, already sit in boarding order.
     height = 1 if stack else 0
     while height < len(stack) and ship_level[stack[height].id] <= ship_level[stack[height - 1].id]:
         height += 1
     return height
 
-
 class _Stuck(Exception):
     pass
 
-
 def _sort_targeted(stacks, ship_level):
-    # Clean stack = boxes that board later at the bottom, earlier on top.
-    # Clean stacks one at a time; only boxes above a stack's clean part move.
     moves = []
     limit = 4 * sum(len(stack) for stack in stacks) + 50
 
@@ -295,8 +255,6 @@ def _sort_targeted(stacks, ship_level):
         moves.append(("D", src, dst))
 
     def best_fit(box_level, banned):
-        # A clean stack whose top boards no earlier than this box. Closest fit
-        # first so empty stacks stay free for the boxes that need them.
         best, best_score = None, None
         for index, stack in enumerate(stacks):
             if index in banned or len(stack) >= YARD_HEIGHT or misplaced(index) > 0:
@@ -312,8 +270,6 @@ def _sort_targeted(stacks, ship_level):
         return best
 
     def make_room(box_level, banned):
-        # Strip earlier-boarding boxes off the top of a clean stack until this
-        # box fits there. Pick the stack that needs the fewest boxes stripped.
         best, best_strip = None, None
         for index, stack in enumerate(stacks):
             if index in banned or misplaced(index) > 0:
@@ -338,7 +294,6 @@ def _sort_targeted(stacks, ship_level):
         if dst is None:
             dst = make_room(box_level, banned)
         if dst is None:
-            # Nowhere clean: dump on the messiest stack, it gets dug out anyway.
             choices = [i for i in range(len(stacks))
                        if i not in banned and len(stacks[i]) < YARD_HEIGHT]
             if len(choices) == 0:
@@ -356,7 +311,6 @@ def _sort_targeted(stacks, ship_level):
                 place(src, set())
     except _Stuck:
         return None
-
 
 def _rebuild_yard(stacks, ship_level):
     moves = []
@@ -378,10 +332,8 @@ def _rebuild_yard(stacks, ship_level):
     containers = []
     for stack in stacks:
         containers.extend(stack)
-    # Place ship-top tiers first so they become the bottom of a yard stack.
     containers.sort(key=lambda container: (-ship_level[container.id], container.id))
 
-    # Keep the last stacks as parking. Everything else gets rebuilt, floor first.
     home_count = (len(containers) + YARD_HEIGHT - 1) // YARD_HEIGHT
     if home_count > YARD_STACKS - 1:
         home_count = YARD_STACKS - 1
@@ -395,7 +347,6 @@ def _rebuild_yard(stacks, ship_level):
                 choices.append(stack_index)
         if len(choices) == 0:
             raise RuntimeError("No open cell while sorting the yard.")
-        # Park on the high stacks so the low ones stay free to rebuild.
         choices.sort(key=lambda stack_index: (len(stacks[stack_index]), -stack_index))
         relocate(src, choices[0])
 
@@ -418,11 +369,7 @@ def _rebuild_yard(stacks, ship_level):
             cursor += 1
     return moves
 
-
 def load_boat(stacks, columns):
-    # Fill every column's floor before anyone's second box, or that box is floating.
-    # We can only take whatever is currently on top. Among those, the middle
-    # of the ship goes first.
     by_level = {0: [], 1: [], 2: []}
     slot_of = {}
     for pos, column in columns.items():
@@ -453,10 +400,7 @@ def load_boat(stacks, columns):
             del pending[container.id]
     return moves
 
-
 def view_data(containers, columns):
-    # One picture of the yard and one of the ship, both built from the plan
-    # the page is about to draw. Bottom box first in every pile.
     dock = Dock(containers)
     yard = []
     for stack in dock.stacks:
@@ -479,15 +423,11 @@ def view_data(containers, columns):
         ship.append(across)
     return yard, ship
 
-
 def write_moves_csv(path, lines):
-    # One instruction per row, no header. The last row is how many moves that was.
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         for line in lines:
             writer.writerow([line])
-        writer.writerow(["Moves: " + str(len(lines))])
-
 
 if __name__ == "__main__":
     with open(sys.argv[1], encoding="utf-8-sig", newline="") as source:
@@ -496,4 +436,3 @@ if __name__ == "__main__":
     out_path = os.path.splitext(sys.argv[1])[0] + "-moves.csv"
     write_moves_csv(out_path, lines)
     print("\n".join(lines))
-    print("Moves: " + str(len(lines)))
