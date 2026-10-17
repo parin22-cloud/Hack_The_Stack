@@ -59,3 +59,8 @@ def classify(weight, cutoffs):
     else: 
         return MEDIUM
 
+def make_container(dest, weight, counts, wclass):
+    counts[dest] = counts.get(dest, 0) + 1
+    cont_id = dest + str(counts[dest])
+
+    return {"id": cont_id, "destination": dest, "weight":weight, "weight_class":wclass }

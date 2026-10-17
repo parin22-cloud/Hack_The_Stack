@@ -1,5 +1,5 @@
 import csv
-from models import NUM_STACKS, DESTINATION_ORDER, empty_dock, split_text, get_weights, compute_cutoffs
+from models import NUM_STACKS, DESTINATION_ORDER, empty_dock, split_text, get_weights, compute_cutoffs, classify, make_container
 
 def read_rows(path):
     with open(path , newline = "") as f:
@@ -29,4 +29,19 @@ def load_dock(path):
     weights = get_weights(dock)
     cutoffs = compute_cutoffs(weights)
 
-    return dock , cutoffs
+    counts = {}                                  
+
+    for column in range(1, NUM_STACKS+1):
+        for row in range(len(dock[column])):
+            dest = dock[column][row][0]                          
+            weight = dock[column][row][1]                         
+            wclass = classify(weight, cutoffs)  
+            dock[column][row] = make_container(dest, weight, counts, wclass)  
+    return dock, cutoffs
+
+
+if __name__ == "__main__":
+    dock, cutoffs = load_dock("Test Cases/random1.csv")
+    print(cutoffs)
+    for stack_num in dock:
+        print(stack_num, dock[stack_num])
