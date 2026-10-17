@@ -4,24 +4,62 @@ import os
 import sys
 
 
-# Closest port first. Edinburgh is the farthest.
-DESTINATIONS = [
-    "Anchorage",
-    "Brisbane",
-    "Copenhagen",
-    "Dunkirk",
-    "Edinburgh",
-]
+# Closest port first. A is Anchorage, E is Edinburgh.
+DESTINATION_ORDER = {
+    "anchorage": "A",
+    "brisbane": "B",
+    "copenhagen": "C",
+    "dunkirk": "D",
+    "edinburgh": "E",
+}
 
-DEST_INDEX = {}
-for _i, _name in enumerate(DESTINATIONS):
-    DEST_INDEX[_name] = _i
-
-YARD_STACKS = 10
-YARD_HEIGHT = 10
+NUM_STACKS, MAX_HEIGHT = 10, 10
+YARD_STACKS = NUM_STACKS
+YARD_HEIGHT = MAX_HEIGHT
 BOAT_LENGTH = 8  # bays, bow at x = 0 (left)
 BOAT_WIDTH = 5
 BOAT_HEIGHT = 3
+
+DEST_INDEX = {}
+PORT_NAME = {}
+for _index, (_city, _letter) in enumerate(DESTINATION_ORDER.items()):
+    DEST_INDEX[_letter] = _index
+    PORT_NAME[_letter] = _city.capitalize()
+
+
+def split_text(text):
+    parts = text.split("-")
+    parts[0] = DESTINATION_ORDER[parts[0].strip().lower()]
+    parts[1] = int(parts[1])
+    return parts[0], parts[1]
+
+
+def empty_dock():
+    dock = {}
+    for n in range(1, NUM_STACKS + 1):
+        dock[n] = []
+    return dock
+
+
+def move(dock, source, destination):
+    if len(dock[source]) == 0:
+        raise ValueError(f"Column {source} is empty")
+    if len(dock[destination]) >= MAX_HEIGHT:
+        raise ValueError(f"Column {destination} is full")
+    if source == destination:
+        raise ValueError("Can't move a container to the same column")
+
+    c = dock[source].pop()
+    dock[destination].append(c)
+
+
+def make_container(dest, weight, counts, wclass=None):
+    counts[dest] = counts.get(dest, 0) + 1
+    cont_id = dest + str(counts[dest])
+    made = {"id": cont_id, "destination": dest, "weight": weight}
+    if wclass is not None:
+        made["weight_class"] = wclass
+    return made
 
 
 class Container:
@@ -100,11 +138,8 @@ class Planner:
                 src, dst = data
                 result.append(f"{src + 1}>{dst + 1}")
             elif kind == "L":
-                # Height is whatever is already in that column. The file only names bay and row.
                 src, (x, y, _level) = data
-                result.append(f"{src + 1}>S({x + 1}|{y + 1})")
-            else:
-                raise ValueError(f"Unknown move {kind!r}")
+                result.append(f"{src + 1}>S({y + 1}|{x + 1})")
         return result
 
 
@@ -114,20 +149,22 @@ def parse_csv(text):
     rows = list(csv.reader(io.StringIO(text)))
     while len(rows) > 0 and _row_empty(rows[-1]):
         rows.pop()
-    containers = []
-    next_id = 0
-    for stack_index, row in enumerate(rows):
-        height = 0
+    dock = empty_dock()
+    for index, row in enumerate(rows, 1):
         for cell in row:
-            token = cell.strip()
-            if token == "":
+            if not cell.strip():
                 continue
-            dest, weight_text = token.rsplit("-", 1)
+            dock[index].append(split_text(cell))
+    counts = {}
+    containers = []
+    for column in range(1, NUM_STACKS + 1):
+        for height, item in enumerate(dock[column]):
+            dest = item[0]
+            weight = item[1]
+            made = make_container(dest, weight, counts)
             containers.append(
-                Container(next_id, float(weight_text), dest.strip(), stack_index, height)
+                Container(made["id"], made["weight"], made["destination"], column - 1, height)
             )
-            next_id += 1
-            height += 1
     return containers
 
 
@@ -216,13 +253,12 @@ def sort_yard(stacks, ship_level):
         return []
 
     moves = []
+    dock = empty_dock()
+    for index, stack in enumerate(stacks):
+        dock[index + 1] = stack
 
     def relocate(src, dst):
-        if len(stacks[src]) == 0:
-            raise RuntimeError("Sort moved an empty stack.")
-        if len(stacks[dst]) >= YARD_HEIGHT:
-            raise RuntimeError("Sort ran out of room.")
-        stacks[dst].append(stacks[src].pop())
+        move(dock, src + 1, dst + 1)
         moves.append(("D", src, dst))
 
     def locate(container):
@@ -319,7 +355,7 @@ def view_data(containers, columns):
     for stack in dock.stacks:
         pile = []
         for container in stack:
-            pile.append({"dest": container.dest, "weight": container.weight})
+            pile.append({"dest": PORT_NAME[container.dest], "weight": container.weight})
         yard.append(pile)
     while len(yard) > 0 and len(yard[-1]) == 0:
         yard.pop()
@@ -331,7 +367,7 @@ def view_data(containers, columns):
             column = columns.get((bay, row), [])
             pile = []
             for container in column:
-                pile.append({"dest": container.dest, "weight": container.weight})
+                pile.append({"dest": PORT_NAME[container.dest], "weight": container.weight})
             across.append(pile)
         ship.append(across)
     return yard, ship

@@ -69,5 +69,4 @@ def index():
 
 
 if __name__ == "__main__":
-    # debug stays off so a missed error is not printed as a traceback page.
     app.run(debug=False)
