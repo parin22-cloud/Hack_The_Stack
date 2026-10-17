@@ -1,0 +1,4 @@
+test_type,cases,min_containers,max_containers,avg_moves,min_moves,max_moves,avg_moves_per_container,trend_slope,trend_intercept,r_squared
+Random,35,49,80,251.7,167,367,3.88,5.98,-133.7,0.893
+Reversed,13,50,80,225.3,139,313,3.3,5.54,-145.5,0.959
+Solved,13,50,80,69.2,50,80,1.0,1.0,0.0,1.0
