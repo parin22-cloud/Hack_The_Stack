@@ -73,15 +73,20 @@ class Planner:
         if len(self.containers) == 0:
             return []
 
-        columns = plan_columns(self.containers)
-        ship_level = {}
-        for pos, column in columns.items():
-            for level, container in enumerate(column):
-                ship_level[container.id] = level
-
-        self.columns = columns
         dock = Dock(self.containers)
         stacks = dock.copy_stacks()
+        columns = plan_columns(self.containers)
+        ship_level = _ship_levels(columns)
+        if not _yard_ready(stacks, ship_level):
+            # Same-port boxes are interchangeable for the port rule. If letting
+            # the higher yard box board first makes the yard ready as it sits,
+            # take that plan and skip the rebuild entirely.
+            by_yard = plan_columns(self.containers, yard_first=True)
+            by_yard_level = _ship_levels(by_yard)
+            if _yard_ready(stacks, by_yard_level):
+                columns, ship_level = by_yard, by_yard_level
+
+        self.columns = columns
         moves = sort_yard(stacks, ship_level)
         moves.extend(load_boat(stacks, columns))
         return moves
@@ -144,7 +149,15 @@ def _deck_cells():
     return cells
 
 
-def plan_columns(containers):
+def _ship_levels(columns):
+    ship_level = {}
+    for pos, column in columns.items():
+        for level, container in enumerate(column):
+            ship_level[container.id] = level
+    return ship_level
+
+
+def plan_columns(containers, yard_first=False):
     # Fill the floor of the whole ship before anyone gets a second box,
     # then the second level, then the third. Farther ports stay underneath.
     spots = BOAT_LENGTH * BOAT_WIDTH
@@ -162,10 +175,14 @@ def plan_columns(containers):
         for pos in cells[:extra]:
             heights[pos] += 1
 
-    ordered = sorted(
-        containers,
-        key=lambda container: (-DEST_INDEX[container.dest], -container.weight, container.id),
-    )
+    if yard_first:
+        # Within a port, the box sitting higher in the yard boards first (lower level).
+        def order(container):
+            return (-DEST_INDEX[container.dest], -container.height, -container.weight, container.id)
+    else:
+        def order(container):
+            return (-DEST_INDEX[container.dest], -container.weight, container.id)
+    ordered = sorted(containers, key=order)
     columns = {}
     index = 0
     for level in range(BOAT_HEIGHT):
