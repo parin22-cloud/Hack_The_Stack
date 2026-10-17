@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hack the Stack</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body {% if posted %}data-posted="yes" {% endif %}>
+    <header class="hero">
+      <img src="/hero.jpg" alt="Container ship at a port at dusk" />
+      <div class="hero-shade"></div>
+      <div class="hero-text">
+        <p class="kicker">Port yard</p>
+        <h1>Hack the Stack</h1>
+      </div>
+      <a class="scroll" href="#workspace">Scroll</a>
+    </header>
+
+    <main id="workspace" class="wrap">
+      <h2>Load a yard</h2>
+
+      <form method="post" enctype="multipart/form-data">
+        <label for="csv">Containers CSV</label>
+        <input
+          id="csv"
+          type="file"
+          name="csv"
+          accept=".csv,text/csv"
+          required
+        />
+      </form>
+
+      {% if error %}
+      <p class="error">{{ error }}</p>
+      {% endif %}
+      {% if saved_name and not error %}
+      <p class="ok">Saved on this device as uploads/{{ saved_name }}.</p>
+      <p class="ok">Instructions written to {{ moves_name }}. <a href="#ship">See the ship</a></p>
+      {% endif %}
+
+      <section class="panel">
+        <div id="yard" class="yard">
+          {% if not layout_json %}
+          <p class="empty">The stacks show up here after a file is chosen.</p>
+          {% endif %}
+        </div>
+        <div id="legend" class="legend"></div>
+      </section>
+
+      {% if layout_json %}
+      <section id="ship" class="ship-wrap">
+        <h2>On the ship</h2>
+        <p class="lede">Looking down at the deck. 8 along the ship, 5 across, 3 high in each spot.</p>
+        <div class="ship">
+          <div id="ship-yard" class="deck"></div>
+          <div class="hull"></div>
+        </div>
+        <p class="ship-note">A bay is one slice across the ship. The numbers on top are bays 1 to 8, bow on the left. The numbers on the side are the 5 rows across. The three bars in a cell are the height, floor at the bottom. Hover a bar for the destination and weight.</p>
+      </section>
+      {% endif %}
+    </main>
+
+    {% if layout_json %}
+    <script type="application/json" id="layout-data">
+      {{ layout_json | safe }}
+    </script>
+    {% endif %}
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
