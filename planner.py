@@ -75,19 +75,19 @@ class Planner:
 
         dock = Dock(self.containers)
         stacks = dock.copy_stacks()
-        columns = plan_columns(self.containers)
-        ship_level = _ship_levels(columns)
-        if not _yard_ready(stacks, ship_level):
-            # Same-port boxes are interchangeable for the port rule. If letting
-            # the higher yard box board first makes the yard ready as it sits,
-            # take that plan and skip the rebuild entirely.
-            by_yard = plan_columns(self.containers, yard_first=True)
-            by_yard_level = _ship_levels(by_yard)
-            if _yard_ready(stacks, by_yard_level):
-                columns, ship_level = by_yard, by_yard_level
+        # Same-port boxes are interchangeable for the port rule, so try ranking
+        # them by weight and by yard height, and keep whichever plan needs
+        # fewer yard moves. A tie keeps the weight plan (heavier boxes lower).
+        best = None
+        for yard_first in (False, True):
+            columns = plan_columns(self.containers, yard_first=yard_first)
+            trial = [list(stack) for stack in stacks]
+            yard_moves = sort_yard(trial, _ship_levels(columns))
+            if best is None or len(yard_moves) < len(best[1]):
+                best = (columns, yard_moves, trial)
 
+        columns, moves, stacks = best
         self.columns = columns
-        moves = sort_yard(stacks, ship_level)
         moves.extend(load_boat(stacks, columns))
         return moves
 
@@ -215,6 +215,113 @@ def sort_yard(stacks, ship_level):
     if _yard_ready(stacks, ship_level):
         return []
 
+    # Try moving only the boxes that are in the way, and the old full rebuild,
+    # and keep whichever needs fewer moves.
+    targeted = [list(stack) for stack in stacks]
+    moves = _sort_targeted(targeted, ship_level)
+    rebuilt = [list(stack) for stack in stacks]
+    rebuild_moves = _rebuild_yard(rebuilt, ship_level)
+    if moves is None or len(rebuild_moves) < len(moves):
+        moves, targeted = rebuild_moves, rebuilt
+    stacks[:] = targeted
+    return moves
+
+
+def _clean_height(stack, ship_level):
+    # How many boxes, counted from the bottom, already sit in boarding order.
+    height = 1 if stack else 0
+    while height < len(stack) and ship_level[stack[height].id] <= ship_level[stack[height - 1].id]:
+        height += 1
+    return height
+
+
+class _Stuck(Exception):
+    pass
+
+
+def _sort_targeted(stacks, ship_level):
+    # Clean stack = boxes that board later at the bottom, earlier on top.
+    # Clean stacks one at a time; only boxes above a stack's clean part move.
+    moves = []
+    limit = 4 * sum(len(stack) for stack in stacks) + 50
+
+    def level(index):
+        return ship_level[stacks[index][-1].id]
+
+    def misplaced(index):
+        return len(stacks[index]) - _clean_height(stacks[index], ship_level)
+
+    def move(src, dst):
+        if len(moves) >= limit:
+            raise _Stuck()
+        stacks[dst].append(stacks[src].pop())
+        moves.append(("D", src, dst))
+
+    def best_fit(box_level, banned):
+        # A clean stack whose top boards no earlier than this box. Closest fit
+        # first so empty stacks stay free for the boxes that need them.
+        best, best_score = None, None
+        for index, stack in enumerate(stacks):
+            if index in banned or len(stack) >= YARD_HEIGHT or misplaced(index) > 0:
+                continue
+            if len(stack) == 0:
+                score = (1, 0, 0)
+            elif level(index) >= box_level:
+                score = (0, level(index), -len(stack))
+            else:
+                continue
+            if best_score is None or score < best_score:
+                best, best_score = index, score
+        return best
+
+    def make_room(box_level, banned):
+        # Strip earlier-boarding boxes off the top of a clean stack until this
+        # box fits there. Pick the stack that needs the fewest boxes stripped.
+        best, best_strip = None, None
+        for index, stack in enumerate(stacks):
+            if index in banned or misplaced(index) > 0:
+                continue
+            strip = 0
+            while strip < len(stack) and ship_level[stack[-1 - strip].id] < box_level:
+                strip += 1
+            if len(stack) - strip >= YARD_HEIGHT:
+                continue
+            if best_strip is None or strip < best_strip:
+                best, best_strip = index, strip
+        if best is None:
+            return None
+        for _ in range(best_strip):
+            place(best, banned | {best})
+        return best
+
+    def place(src, banned):
+        box_level = level(src)
+        banned = banned | {src}
+        dst = best_fit(box_level, banned)
+        if dst is None:
+            dst = make_room(box_level, banned)
+        if dst is None:
+            # Nowhere clean: dump on the messiest stack, it gets dug out anyway.
+            choices = [i for i in range(len(stacks))
+                       if i not in banned and len(stacks[i]) < YARD_HEIGHT]
+            if len(choices) == 0:
+                raise _Stuck()
+            dst = max(choices, key=lambda i: (misplaced(i), -len(stacks[i])))
+        move(src, dst)
+
+    try:
+        while True:
+            dirty = [(misplaced(i), i) for i in range(len(stacks)) if misplaced(i) > 0]
+            if len(dirty) == 0:
+                return moves
+            _, src = min(dirty)
+            while misplaced(src) > 0:
+                place(src, set())
+    except _Stuck:
+        return None
+
+
+def _rebuild_yard(stacks, ship_level):
     moves = []
 
     def relocate(src, dst):
